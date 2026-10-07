@@ -1,0 +1,29 @@
+// Run: node browser/test_monitor_ui.cjs
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+const source = fs.readFileSync(path.join(__dirname, 'monitor.html'), 'utf8')
+  .split('<script>')[1].split('let updating=false;')[0];
+vm.runInNewContext(source + `
+if (esc('<script>') !== '&lt;script&gt;') throw Error('Unsafe host');
+if (fmt(null, '%') !== '—') throw Error('Missing metric shown as zero');
+let sample = {host: '<test>', metrics: {cpu: 42, gpu: null, ram: 60,
+ cpu_temp: 55, gpu_temp: null, cores: Array(32).fill(42), gpus: [], disks: {},
+ network: {}, temperatures: {}}, history: [{cpu: 42, gpu: null, ram: 60}]};
+let html = overview(sample, '<test>');
+if (html.includes('<test>') || !html.includes('&lt;test&gt;')) throw Error('Unsafe overview');
+let ranked=busiest([10,99,null,30,80,5,70,NaN]);
+if(ranked.map(c=>c.index).join(',')!=='1,4,6,3') throw Error('Busiest core ranking');
+if(busiest(Array(32).fill(42)).length!==4 || detail(sample).includes('C32 42.0%') || !detail(sample).includes('class="gauge"')) throw Error('Compact CPU detail');
+for(const label of ['CPU','GPU','Memory','Network','Disk I/O','Temperatures','Activity trails']) if(!detail(sample).includes(label)) throw Error('Missing detail category '+label);
+if(busiest([null,undefined,NaN]).length) throw Error('Unknown cores ranked as zero');
+if(gauge(null,'#fff','GPU').includes('NaN') || bar(-5,'#fff').includes('width:-')) throw Error('Invalid graphical metric');
+if (graph([{cpu: null}, {cpu: 42}], 'cpu', '#fff').includes('NaN')) throw Error('Invalid graph');
+let gpu = {memory_used_mb: 11348, memory_total_mb: 16380, memory_percent: 69.3};
+if(vram(gpu)!=='11.1 / 16.0 GiB' || vramPercent(gpu)!=='69.3%') throw Error('Wrong VRAM units');
+if(vram({memory_total_mb:0,memory_percent:0})!=='—' || vramPercent({memory_total_mb:0,memory_percent:0})!=='—') throw Error('Unknown VRAM shown as zero');
+if(vram({memory_percent:42})!=='42.0%') throw Error('Percent-only sender unsupported');
+if(!gpuCard({...gpu,name:'<gpu>',usage_percent:50},0).includes('&lt;gpu&gt;') || !gpuCard(gpu,0).includes('69.3%')) throw Error('Unsafe or incomplete GPU instrument');
+if(mainVram([gpu,{memory_total_mb:0}])!==gpu) throw Error('Wrong overview GPU');
+`, {});
+console.log('PASS: host escaping, missing metrics, top 4 of 32 cores, all metric categories, sparse history, VRAM');

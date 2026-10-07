@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect x="18" y="18" width="476" height="476" rx="100" fill="#ffe071" stroke="#243449" stroke-width="14"/>
+<path d="M60 88l24-19m342 23l22 12M78 420l-20 8" stroke="#243449" stroke-width="8" stroke-linecap="round"/>
+<path d="M140 184h-36m36 54h-36m36 54h-36m268-108h36m-36 54h36m-36 54h36M199 128V92m57 36V92m57 36V92M199 358v35m57-35v35m57-35v35" stroke="#243449" stroke-width="16" stroke-linecap="round"/>
+<rect x="142" y="128" width="230" height="230" rx="55" fill="#243449" transform="translate(7 10)"/>
+<rect x="142" y="128" width="230" height="230" rx="55" fill="#8ae1c8" stroke="#243449" stroke-width="12"/>
+<ellipse cx="187" cy="266" rx="20" ry="12" fill="#ff9fbb"/><ellipse cx="327" cy="266" rx="20" ry="12" fill="#ff9fbb"/>
+<path d="M194 221q16-23 32 0m63 0q16-23 32 0m-80 39q16 23 32 0" fill="none" stroke="#243449" stroke-width="12" stroke-linecap="round"/>
+<path d="M177 317h37l20-24 24 39 20-22h58" fill="none" stroke="#243449" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M370 62l12 26 28 5-20 21 3 28-23-14-25 12 6-27-18-23 28-2z" fill="#ff9fbb" stroke="#243449" stroke-width="7"/>
+<rect x="91" y="410" width="330" height="53" rx="24" fill="#fffef4" stroke="#243449" stroke-width="7"/>
+<text x="256" y="446" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="29" font-weight="bold" fill="#243449">Hardware Monitor</text>
+</svg>

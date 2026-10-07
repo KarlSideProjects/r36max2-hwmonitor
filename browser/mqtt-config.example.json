@@ -1,0 +1,8 @@
+{
+  "host": "",
+  "port": 1883,
+  "topic": "sys/agents/+/metrics",
+  "username": "",
+  "password": "",
+  "tls": false
+}
