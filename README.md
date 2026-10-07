@@ -80,6 +80,7 @@ CPU 整體負載、動態最忙四核心、各 GPU 負載與 VRAM、RAM／Swap�
 ```bash
 sudo apt update
 sudo apt install --no-install-recommends git chromium xserver-xorg-core xinit x11-xserver-utils python3-paho-mqtt
+sudo loginctl enable-linger ark
 git clone https://github.com/KarlSideProjects/r36max2-hwmonitor.git
 cd r36max2-hwmonitor
 mkdir -p /home/ark/device-browser/assets /home/ark/device-browser/lib
@@ -87,6 +88,18 @@ cp browser/*.py browser/*.html browser/*.sh browser/xorg.conf /home/ark/device-b
 cp browser/assets/hardware-buddy.svg /home/ark/device-browser/assets/
 chmod +x /home/ark/device-browser/*.sh
 ```
+
+`enable-linger` 讓系統開機後保留 `ark` 的使用者執行環境。否則退出 SSH 後，`/run/user/1000` 可能被移除，監控入口會因無權建立該目錄而退回遊戲選單。
+
+如果遊戲選單載入較多內容，與 Chromium 同時執行可能造成記憶體不足、網頁崩潰。這台 dArkOS4Clone 已提供 512 MB ZRAM 服務，可啟用壓縮交換記憶體並設為開機啟動：
+
+```bash
+sudo sed -i 's/^ENABLED=0$/ENABLED=1/' /etc/zram.conf
+sudo systemctl enable --now zram-swap.service
+cat /proc/swaps
+```
+
+確認輸出包含 `/dev/zram0`。上述操作使用系統內建設定，適用於已有 `/etc/zram.conf` 與 `zram-swap.service` 的映像。
 
 ### 2. 準備瀏覽器專用圖形函式庫
 
