@@ -79,87 +79,101 @@
 
 實機環境為 Debian 13 ARM64、Chromium、Xorg modesetting 與 Python 3。其他 R36 型號與原廠系統尚未驗證；遊戲選單路徑與按鍵代碼可能不同。
 
-### 1. 安裝依賴並下載程式
+### 快速安裝（建議）
 
-在掌機的 SSH 終端執行：
+安裝腳本為 [browser/install.sh](browser/install.sh)。以下命令在掌機上以 `ark` 執行；`git clone` 需要已安裝 Git。從開發電腦操作時，先用 `ssh ark@192.168.5.127` 登入，其他掌機請改成自己的 IP。
 
 ```bash
-sudo apt update
-sudo apt install --no-install-recommends git chromium xserver-xorg-core xinit x11-xserver-utils python3-paho-mqtt
-sudo loginctl enable-linger ark
+# 寫入掌機：下載並安裝；先退出遊戲或監控程式。
 git clone https://github.com/KarlSideProjects/r36max2-hwmonitor.git
 cd r36max2-hwmonitor
-mkdir -p /home/ark/device-browser/assets /home/ark/device-browser/lib
-cp browser/*.py browser/*.html browser/*.sh browser/xorg.conf /home/ark/device-browser/
-cp browser/assets/hardware-buddy.svg /home/ark/device-browser/assets/
-chmod +x /home/ark/device-browser/*.sh
+sudo -v
+bash browser/install.sh
 ```
 
-`enable-linger` 讓系統開機後保留 `ark` 的使用者執行環境。否則退出 SSH 後，`/run/user/1000` 可能被移除，監控入口會因無權建立該目錄而退回遊戲選單。
+腳本安裝 Chromium、Xorg 與 Python MQTT 依賴，將 Debian GBM 函式庫放在應用程式自己的 `lib` 目錄，保留遊戲系統的 Mali 函式庫。它啟用 `ark` 的 linger 和系統內建 ZRAM，安裝程式與圖示，再重新載入遊戲選單。常亮與隱藏游標由啟動腳本處理。已有相依套件時跳過套件安裝。
 
-如果遊戲選單載入較多內容，與 Chromium 同時執行可能造成記憶體不足、網頁崩潰。這台 dArkOS4Clone 已提供 512 MB ZRAM 服務，可啟用壓縮交換記憶體並設為開機啟動：
+每次安裝先建立私有 `/home/ark/hwmonitor-backup.*` 備份，輸出完整路徑。備份包含 MQTT 帳密，不要上傳。已存在的 MQTT 設定會保留；提供 `--config FILE` 才會替換。重複執行會更新檔案，保留其他 Ports 項目與遊玩紀錄。
+
+### MQTT 設定與更新
+
+首次安裝若未提供設定，腳本會提示 `MQTT setup pending`。由操作者依 broker 資訊填寫設定檔，不要把帳密寫進 Git 或 AI 的公開輸出。
 
 ```bash
-sudo sed -i 's/^ENABLED=0$/ENABLED=1/' /etc/zram.conf
-sudo systemctl enable --now zram-swap.service
-cat /proc/swaps
+# 寫入掌機：準備本機設定。
+install -m 600 browser/mqtt-config.example.json /home/ark/hwmonitor-mqtt.json
+nano /home/ark/hwmonitor-mqtt.json
 ```
 
-確認輸出包含 `/dev/zram0`。上述操作使用系統內建設定，適用於已有 `/etc/zram.conf` 與 `zram-swap.service` 的映像。
-
-### 2. 準備瀏覽器專用圖形函式庫
-
-這台 dArkOS4Clone 的 Mali `libgbm` 無法直接供 Chromium 使用。瀏覽器使用獨立的 Debian `libgbm`，放在應用程式目錄，不替換遊戲系統的函式庫。
+設定鍵為 `host`、`port`、`topic`、`username`、`password`、`tls`，格式見 [mqtt-config.example.json](browser/mqtt-config.example.json)。匿名 broker 的帳密留空；TLS broker 設 `tls: true` 與對應埠號。
 
 ```bash
-mkdir -p /tmp/hardware-monitor-gbm
-cd /tmp/hardware-monitor-gbm
-apt download libgbm1:arm64
-dpkg-deb -x ./libgbm1_*_arm64.deb extracted
-cp -L extracted/usr/lib/aarch64-linux-gnu/libgbm.so.1 /home/ark/device-browser/lib/libgbm.so.1
+# 寫入掌機：套用設定並安裝。
+bash browser/install.sh --config /home/ark/hwmonitor-mqtt.json
 ```
 
-### 3. 設定 MQTT
-
-回到下載的專案目錄，建立本機設定：
+更新既有安裝時，先退出監控（Select + B），在乾淨的專案 checkout 執行：
 
 ```bash
-cd ~/r36max2-hwmonitor
-install -m 600 browser/mqtt-config.example.json /home/ark/device-browser/mqtt-config.json
-nano /home/ark/device-browser/mqtt-config.json
+# 寫入掌機：更新原始碼並重新安裝，保留 MQTT 設定。
+git pull --ff-only
+bash browser/install.sh
 ```
 
-依照自己的 broker 填入位址、埠號與帳密：
+### 給 AI 的安裝指令
 
-```json
-{
-  "host": "YOUR_BROKER_HOST",
-  "port": 1883,
-  "topic": "sys/agents/+/metrics",
-  "username": "YOUR_MQTT_USERNAME",
-  "password": "YOUR_MQTT_PASSWORD",
-  "tls": false
-}
-```
+可把以下文字交給下一個 AI；補上掌機 IP 及首次安裝的私有 MQTT 設定檔位置。
 
-broker 使用 TLS 時將 `tls` 設成 `true`，並填入對應埠號。匿名 broker 可把 `username` 與 `password` 留空。實際設定與帳密不放進 Git；`MQTT_CONFIG` 環境變數可指定其他設定檔。
+> 請在 R36 MAX 2 上安裝 KarlSideProjects/r36max2-hwmonitor。先讀 README 的安裝流程與 browser/install.sh。透過 SSH 以 ark 登入掌機，確認是 Debian 13 ARM64 的 dArkOS4Clone，並且有 /roms/ports、/dev/dri/card0、/dev/input/event2 與內建 zram-swap.service。使用既有乾淨 checkout，或下載專案；不要覆蓋未提交修改。退出正在執行的遊戲或監控。執行 sudo -v 後執行 bash browser/install.sh；首次需要 MQTT 設定時使用 --config 指向掌機上的私有 JSON 檔。已有設定就保留，不要輸出帳密。記錄備份路徑，執行 --check，從 Ports 開啟 Hardware Monitor，再檢查 /status 的連線和主機資料、圖示、按鍵、常亮及退出回選單。若 SSH 或 MQTT 資訊不足，只詢問缺少的資訊。報告通過哪些檢查及未驗證項目；不要自行刷機或更改 broker／採集端。
 
-### 4. 加入 Ports 選單
-
-先退出正在執行的監控或遊戲，再於 SSH 終端執行：
+### 驗證安裝
 
 ```bash
-cd ~/r36max2-hwmonitor
+# 唯讀：檢查安裝檔、依賴、MQTT 格式、選單、輸入權限、linger、ZRAM。
+bash browser/install.sh --check
+```
+
+此檢查不會證明 MQTT 已成功連線。操作者在掌機選取 **Ports → Hardware Monitor**，看到電腦後，再在 SSH 執行：
+
+```bash
+# 唯讀：只輸出連線狀態與在線主機數，不輸出設定帳密。
+python3 - <<'PY_CHECK'
+import json, urllib.request
+s=json.load(urllib.request.urlopen('http://127.0.0.1:8766/status', timeout=5))
+print('connection:', s['connection'], 'online:', s['count'])
+assert s['connection'] == 'Connected' and s['count'] > 0
+PY_CHECK
+```
+
+以方向鍵或類比搖桿選主機，A 開詳細頁，B 返回，Select + B 退出。畫面應保持常亮且沒有滑鼠游標。`Device Info` 入口可查看掌機資訊。
+
+腳本已在目前掌機上測試既有安裝的更新與重複執行。全新系統的套件安裝與下列還原流程仍屬待實機驗證；首次執行者需記錄結果。
+
+### 還原安裝
+
+先退出監控與遊戲。將 `backup` 設成安裝輸出的確切備份目錄。下列流程會還原應用程式、選單檔案、圖示和 ZRAM 設定；apt 安裝的套件保留。
+
+```bash
+# 寫入掌機：還原；先填入安裝輸出的路徑。
+backup='/home/ark/hwmonitor-backup.<安裝輸出代碼>'
+set -e
+test -f "$backup/files.tar.gz"
+sudo tar -tzf "$backup/files.tar.gz" >/dev/null
 sudo systemctl stop emulationstation
-mkdir -p /roms/ports/images
-cp 'browser/Hardware Monitor.sh' 'browser/Device Info.sh' /roms/ports/
-chmod +x '/roms/ports/Hardware Monitor.sh' '/roms/ports/Device Info.sh'
-cp browser/assets/hardware-buddy.png /roms/ports/images/
-python3 browser/install-menu.py
+sudo rm -rf /home/ark/device-browser
+sudo rm -f '/roms/ports/Hardware Monitor.sh' '/roms/ports/Device Info.sh' /roms/ports/images/hardware-buddy.png
+sudo tar -C / -xzf "$backup/files.tar.gz"
+if [ "$(cat "$backup/linger")" = no ]; then sudo loginctl disable-linger ark; fi
+if [ "$(cat "$backup/zram-active")" != active ]; then sudo systemctl stop zram-swap.service; fi
+if [ "$(cat "$backup/zram-enabled")" = disabled ]; then sudo systemctl disable zram-swap.service; fi
 sudo systemctl start emulationstation
 ```
 
-選取 **Ports → Hardware Monitor**，收到資料後即可看到電腦。`Device Info` 則用於查看掌機本身的系統狀態。
+首次安裝前沒有 `gamelist.xml` 時，備份不含它；還原時需刪除新增的 Hardware Monitor XML 項目，保留安裝後新增的其他遊戲項目。還原期間不要執行其他選單編輯，否則備份會覆蓋那些修改。
+
+### 入口退回選單或網頁報錯
+
+先讀 `/home/ark/device-browser/launch.log`、`page.log`、`chromium.log`，不要輸出 MQTT 設定。`--check` 指出缺少檔案、linger 或 ZRAM 時重新執行安裝；原廠 OS、其他 CPU 架構或缺少內建 ZRAM 的映像會被拒絕，需先確認系統，勿繞過檢查。若直接從 SSH 執行啟動腳本出現 `drmSetMaster failed`，原因可能是遊戲選單仍占用顯示裝置；應從 Ports 入口啟動。連線未完成時檢查 broker 與採集端，HTTP 8766 只在監控入口開啟時提供服務。
 
 ## 驗證與限制
 
@@ -175,7 +189,7 @@ python3 browser/test_monitor_events.py
 python3 browser/test_menu.py
 python3 browser/test_device_info.py
 node browser/test_monitor_ui.cjs
-bash -n browser/client.sh browser/xserver.sh 'browser/Hardware Monitor.sh'
+bash -n browser/install.sh browser/client.sh browser/xserver.sh 'browser/Hardware Monitor.sh'
 ```
 
 版面測試需要 Node.js 與 Playwright，可執行 `node browser/test_monitor_layout.cjs`。在已開啟監控的掌機上，`measure_startup.py`、`measure_input.py` 與 `test_awake.py` 分別检查啟動等待、按鍵到畫面的延遲，以及常亮設定。
