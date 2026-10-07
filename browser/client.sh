@@ -4,7 +4,8 @@ cd /home/ark/device-browser
 export LD_LIBRARY_PATH=/home/ark/device-browser/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 xset s off
 xset s noblank
-xset -dpms
+xset +dpms
+xset dpms 0 0 0
 python3 "${1:-device_info.py}" >>/home/ark/device-browser/page.log 2>&1 &
 page_pid=$!
 browser_pid=

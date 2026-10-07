@@ -19,6 +19,7 @@ done
 . /etc/os-release
 [[ $ID == debian && $VERSION_ID == 13 ]] || fail 'Requires Debian 13 dArkOS4Clone.'
 [[ -d /roms/ports && -e /dev/dri/card0 && -e /dev/input/event2 ]] || fail 'Expected dArkOS display, controls or /roms/ports missing.'
+[[ -w /sys/class/backlight/backlight/brightness ]] || fail 'ark needs write permission on the R36 backlight brightness control.'
 validate_config() {
     python3 - "$1" <<'PY'
 import json, sys

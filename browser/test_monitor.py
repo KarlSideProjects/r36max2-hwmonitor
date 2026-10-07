@@ -155,3 +155,37 @@ assert state.snapshot()['item_page'] == 0 and state.focus == 'memory'
 state.action('down')
 assert state.snapshot()['item_page'] == 0
 print('PASS: metric item paging, reverse paging, reset when changing metric, no scrolling')
+
+# The display goes completely dark only on request, then restores the dim level.
+from monitor import Screen, BUTTONS
+from unittest.mock import patch
+with TemporaryDirectory() as directory, patch('monitor.subprocess.run') as dpms:
+    panel=Path(directory)/'panel';panel.mkdir()
+    (panel/'brightness').write_text('200');(panel/'max_brightness').write_text('255')
+    screen=Screen(directory,16);screen.enter()
+    assert (panel/'brightness').read_text()=='16'
+    state=Monitor();state.screen=screen
+    assert BUTTONS[708]=='screen' and 307 not in BUTTONS
+    state.action('screen')
+    assert state.snapshot()['screen_off'] and (panel/'brightness').read_text()=='0'
+    version=state.version;state.action('down');assert state.version==version
+    state.action('screen')
+    assert not state.snapshot()['screen_off'] and (panel/'brightness').read_text()=='16'
+    assert [call.args[0][-1] for call in dpms.call_args_list]==['off','on']
+    state.action('screen');dpms.side_effect=OSError('display unavailable')
+    state.action('screen');assert screen.asleep  # A failed wake stays retryable.
+    dpms.side_effect=None;state.action('screen');assert not screen.asleep
+    dpms.side_effect=OSError('DPMS unsupported');state.action('screen')
+    assert screen.asleep and not screen.dpms_off
+    state.action('screen');assert not screen.asleep
+    dpms.side_effect=None
+    state.action('screen');screen.restore()
+    assert dpms.call_args.args[0][-1]=='on' and (panel/'brightness').read_text()=='200'
+    (panel/'brightness').write_text('0');dpms.side_effect=OSError('X already closed')
+    try:screen.restore()
+    except OSError:pass
+    else:raise AssertionError('Expected DPMS error')
+    assert (panel/'brightness').read_text()=='200'
+    dpms.side_effect=None
+    assert Screen(directory,0).dim==1 and Screen(directory,999).dim==255
+print('PASS: FN sleep/wake, nonzero dim brightness, sleeping input ignored, exit brightness restored')

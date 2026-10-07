@@ -5,7 +5,9 @@ import json
 import math
 import os
 import select
+import signal
 import struct
+import subprocess
 import threading
 import time
 from collections import deque
@@ -14,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SECTIONS = ('cpu', 'gpu', 'memory', 'network', 'disks', 'temperatures', 'history')
-BUTTONS = {305: 'detail', 304: 'back', 705: 'toggle', 310: 'previous',
+BUTTONS = {708: 'screen', 305: 'detail', 304: 'back', 705: 'toggle', 310: 'previous',
            311: 'next', 544: 'up', 545: 'down', 546: 'left', 547: 'right'}
 
 
@@ -115,6 +117,53 @@ class LocalStatus:
         return data
 
 
+class Screen:
+    """Manual backlight toggle; retain the user's game-menu brightness on exit."""
+    def __init__(self, directory=Path('/sys/class/backlight'), brightness=16):
+        self.path = next(iter(sorted(Path(directory).glob('*/brightness'))), None)
+        if self.path is None:
+            raise OSError('No backlight brightness control found')
+        self.original = int(self.path.read_text())
+        maximum = int(self.path.with_name('max_brightness').read_text())
+        # ponytail: visibility differs per panel; tune R36_MONITOR_BRIGHTNESS if 16 is too dim.
+        self.dim = max(1, min(maximum, int(brightness)))
+        self.asleep = False
+        self.dpms_off = False
+
+    @staticmethod
+    def power(mode):
+        try:
+            subprocess.run(['xset', 'dpms', 'force', mode], check=True, timeout=3,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise OSError('DPMS display power command failed') from error
+
+    def enter(self):
+        self.path.write_text(str(self.dim))
+
+    def toggle(self):
+        if self.asleep:
+            if self.dpms_off:
+                self.power('on')
+            self.path.write_text(str(self.dim))
+            self.dpms_off = self.asleep = False
+        else:
+            self.path.write_text('0')
+            try:
+                self.power('off')
+                self.dpms_off = True
+            except OSError:
+                print('DPMS unavailable; screen uses backlight-only sleep.', flush=True)
+            self.asleep = True
+
+    def restore(self):
+        try:
+            if self.dpms_off:
+                self.power('on')
+        finally:
+            self.path.write_text(str(self.original))
+
+
 class Monitor:
     def __init__(self):
         self.lock = threading.RLock()
@@ -132,6 +181,7 @@ class Monitor:
         self.connection = 'Not configured'
         self.bad_messages = 0
         self.device = LocalStatus()
+        self.screen = None
 
     def receive(self, topic, payload, retained=False, now=None):
         now = time.monotonic() if now is None else now
@@ -193,6 +243,18 @@ class Monitor:
     def action(self, action, now=None):
         now = time.monotonic() if now is None else now
         with self.lock:
+            if action == 'screen':
+                if self.screen is not None:
+                    try:
+                        self.screen.toggle()
+                    except OSError as error:
+                        print(str(error), flush=True)
+                        return  # Keep FN available to retry a failed wake command.
+                    self.version += 1
+                    self.changed.notify_all()
+                return
+            if self.screen is not None and self.screen.asleep:
+                return
             self.tick(now)
             order = list(self.hosts)
             if action in ('left', 'right') and (self.detail is None or self.focus is not None):
@@ -259,6 +321,7 @@ class Monitor:
             page = order.index(self.selected) // 3 if order else 0
             visible = [self.detail] if self.detail else order[page * 3:page * 3 + 3]
             return {'device': self.device.sample(), 'connection': self.connection, 'paused': self.paused, 'detail': self.detail,
+                    'screen_off': bool(self.screen and self.screen.asleep),
                     'focus': self.focus, 'panel': SECTIONS[self.panel], 'item_page': self.item_page,
                     'selected': self.selected, 'page': page + 1, 'pages': max(1, (len(order) + 2) // 3),
                     'count': len(order), 'bad_messages': self.bad_messages,
@@ -357,6 +420,8 @@ def controls(state, server):
                         limits[axis], initial[axis] = (low, high), value
                 except OSError:
                     pass
+            # Own the gamepad while monitoring so FN combinations cannot change global brightness.
+            fcntl.ioctl(stream.fileno(), 0x40044590, 1)  # EVIOCGRAB; released when the stream closes.
             stick = StickNavigation(limits)
             for axis, value in initial.items():
                 stick.update(axis, value)
@@ -459,13 +524,20 @@ def handler(state):
 
 
 if __name__ == '__main__':
+    def stop(*_):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
     state = Monitor()
-    client = mqtt_start(state)
+    state.screen = Screen(brightness=os.environ.get('R36_MONITOR_BRIGHTNESS', '16'))
+    client = None
     try:
+        state.screen.enter()
+        client = mqtt_start(state)
         with ThreadingHTTPServer(('127.0.0.1', 8766), handler(state)) as server:
             threading.Thread(target=controls, args=(state, server), daemon=True).start()
             server.serve_forever()
     finally:
+        state.screen.restore()
         if client:
             client.disconnect()
             client.loop_stop()

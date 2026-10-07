@@ -109,7 +109,7 @@ header h1,body.device-summary h1{max-width:360px;font-size:30px}
 </style>
 <header><img src="/assets/hardware-buddy.svg" alt="Smiling chip mascot"><div><div class="brand-note">Hardware buddies</div><h1 id="title">Hardware Monitor</h1></div><aside id="device-status" aria-label="R36 handheld status"><div><small>R36 Temp</small><strong id="local-temp">—</strong></div><div><small>R36 CPU</small><strong id="local-cpu">—</strong></div><div><small>R36 RAM</small><strong id="local-memory">—</strong></div><div id="local-battery-box"><small>Battery <span id="charge-icon"></span></small><strong id="local-battery">—</strong></div></aside><span id="connection">Connecting…</span></header>
 <div id="summary"></div><main id="main"></main>
-<footer><span id="help"><kbd>Stick / D-pad</kbd> Select <kbd>A</kbd> Details <kbd>B</kbd> Back</span><span><button onclick="control('previous')">L1 Previous</button> <button onclick="control('next')">R1 Next</button> <button onclick="control('toggle')">Start Pause / resume</button></span><span><kbd>Select + B</kbd> Exit</span></footer>
+<footer><span id="help"><kbd>Stick / D-pad</kbd> Select <kbd>A</kbd> Details <kbd>B</kbd> Back</span><span><button onclick="control('previous')">L1 Previous</button> <button onclick="control('next')">R1 Next</button> <button onclick="control('toggle')">Start Pause / resume</button></span><span><button id="screen-button" onclick="control('screen')" aria-label="Turn screen off; press FN to wake">FN Screen off</button> <kbd>Select + B</kbd> Exit</span></footer>
 <script>
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const numeric=v=>typeof v==='number'&&Number.isFinite(v);
@@ -184,6 +184,7 @@ function render(s){
  document.getElementById('local-battery-box').setAttribute('aria-label','R36 battery: '+label);
  document.getElementById('charge-icon').innerHTML=charging?'<svg viewBox="0 0 16 20" role="img" aria-label="Charging"><path d="M9 0 1 11h6l-1 9 9-12H9z" fill="currentColor"/></svg>':plugged?'<svg viewBox="0 0 20 20" role="img" aria-label="'+label+'"><path d="M6 1v5m8-5v5M4 6h12v3a6 6 0 0 1-12 0zM10 15v4" fill="none" stroke="currentColor" stroke-width="2"/></svg>':'';
 
+ document.getElementById('screen-button').textContent=s.screen_off?'FN Wake':'FN Screen off';
  document.body.classList.toggle('device-summary',Boolean(s.detail&&!s.focus));
  document.getElementById('connection').textContent=s.connection;
  document.getElementById('connection').className=s.connection==='Connected'?'':'error';
@@ -203,6 +204,6 @@ async function update(){if(updating)return;updating=true;try{let r=await fetch('
 async function control(action){await fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})}
 document.getElementById('main').addEventListener('click',e=>{let panel=e.target.closest('[data-section]');if(panel)control('focus:'+panel.dataset.section)});
 const events=new EventSource('/events');events.onmessage=e=>render(JSON.parse(e.data));events.onerror=lost;
-document.addEventListener('keydown',e=>{const actions={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'detail',Backspace:'back',Escape:'back',PageUp:'previous',PageDown:'next',' ':'toggle'};if(actions[e.key]){e.preventDefault();const panel=e.target.closest('[data-section]');control(e.key==='Enter'&&panel?'focus:'+panel.dataset.section:actions[e.key])}});
+document.addEventListener('keydown',e=>{if(e.target.closest('button')&&(e.key==='Enter'||e.key===' '))return;const actions={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'detail',Backspace:'back',Escape:'back',PageUp:'previous',PageDown:'next',' ':'toggle',f:'screen',F:'screen'};if(actions[e.key]){e.preventDefault();const panel=e.target.closest('[data-section]');control(e.key==='Enter'&&panel?'focus:'+panel.dataset.section:actions[e.key])}});
 update();
 </script></html>
