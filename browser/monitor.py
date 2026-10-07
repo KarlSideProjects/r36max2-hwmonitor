@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """MQTT receiver and local dashboard for the existing hwmonitor-mqtt senders."""
+import fcntl
 import json
 import math
 import os
@@ -14,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SECTIONS = ('cpu', 'gpu', 'memory', 'network', 'disks', 'temperatures', 'history')
 BUTTONS = {305: 'detail', 304: 'back', 705: 'toggle', 310: 'previous',
-           311: 'next', 544: 'up', 545: 'down', 546: 'up', 547: 'down'}
+           311: 'next', 544: 'up', 545: 'down', 546: 'left', 547: 'right'}
 
 
 def number(value):
@@ -57,6 +58,63 @@ def normalize(data):
             'write': sum(number(r.get('write_bytes_per_s')) or 0 for r in disk_rates) if disks else None}
 
 
+class LocalStatus:
+    """Read the handheld, independently of the MQTT hosts, at most once per 2 seconds."""
+    def __init__(self, proc=Path('/proc'), supplies=Path('/sys/class/power_supply'), thermal=Path('/sys/class/thermal')):
+        self.proc, self.supplies, self.thermal = proc, supplies, thermal
+        self.previous = None
+        self.updated = -math.inf
+        self.data = {}
+
+    @staticmethod
+    def read(path):
+        try:
+            return path.read_text().strip()
+        except OSError:
+            return ''
+
+    def sample(self, now=None):
+        now = time.monotonic() if now is None else now
+        if now - self.updated < 2:
+            return self.data
+        data = {'cpu': None, 'memory': None, 'temperature': None, 'battery': None,
+                'charging': False, 'plugged': False, 'battery_status': 'Unknown'}
+        try:
+            ticks = [int(v) for v in self.read(self.proc / 'stat').splitlines()[0].split()[1:9]]
+            total, idle = sum(ticks), ticks[3] + ticks[4]
+            if self.previous and total > self.previous[0]:
+                data['cpu'] = min(100, max(0, 100 * (1 - (idle - self.previous[1]) / (total - self.previous[0]))))
+            self.previous = total, idle
+        except (ValueError, IndexError):
+            pass
+        try:
+            mem = {k: int(v.split()[0]) for k, v in (line.split(':', 1) for line in self.read(self.proc / 'meminfo').splitlines())}
+            data['memory'] = min(100, max(0, (1 - mem['MemAvailable'] / mem['MemTotal']) * 100))
+        except (ValueError, KeyError, IndexError, ZeroDivisionError):
+            pass
+        for zone in sorted(self.thermal.glob('thermal_zone*')):
+            if self.read(zone / 'type') == 'soc-thermal':
+                try:
+                    data['temperature'] = int(self.read(zone / 'temp')) / 1000
+                except ValueError:
+                    pass
+                break
+        for supply in self.supplies.glob('*'):
+            if self.read(supply / 'type') == 'Battery':
+                data['battery_status'] = self.read(supply / 'status') or 'Unknown'
+                data['charging'] = data['battery_status'] == 'Charging'
+                try:
+                    capacity = int(self.read(supply / 'capacity'))
+                    if 0 <= capacity <= 100:
+                        data['battery'] = capacity
+                except ValueError:
+                    pass
+            elif self.read(supply / 'online') == '1':
+                data['plugged'] = True
+        self.data, self.updated = data, now
+        return data
+
+
 class Monitor:
     def __init__(self):
         self.lock = threading.RLock()
@@ -72,6 +130,7 @@ class Monitor:
         self.last_page = time.monotonic()
         self.connection = 'Not configured'
         self.bad_messages = 0
+        self.device = LocalStatus()
 
     def receive(self, topic, payload, retained=False, now=None):
         now = time.monotonic() if now is None else now
@@ -135,6 +194,8 @@ class Monitor:
         with self.lock:
             self.tick(now)
             order = list(self.hosts)
+            if action in ('left', 'right') and (self.detail is None or self.focus is not None):
+                action = 'previous' if action == 'left' else 'next'
             if action == 'toggle' and self.detail is None:
                 self.paused = not self.paused
                 self.last_page = now
@@ -159,9 +220,13 @@ class Monitor:
                     self.selected = order[page * 3]
                     self.detail = None
                     self.scroll = 0
-                elif action in ('up', 'down') and self.detail is not None:
+                elif action in ('up', 'down', 'left', 'right') and self.detail is not None:
                     if self.focus is None:
-                        self.panel = (self.panel + (1 if action == 'down' else -1)) % len(SECTIONS)
+                        neighbors = {'up': {3: 0, 4: 2, 5: 3, 6: 4},
+                                     'down': {0: 3, 1: 3, 2: 4, 3: 5, 4: 6},
+                                     'left': {1: 0, 2: 1, 4: 3, 6: 5},
+                                     'right': {0: 1, 1: 2, 3: 4, 5: 6}}
+                        self.panel = neighbors[action].get(self.panel, self.panel)
                     else:
                         return
                 elif action in ('up', 'down') and self.detail is None:
@@ -187,7 +252,7 @@ class Monitor:
             order = list(self.hosts)
             page = order.index(self.selected) // 3 if order else 0
             visible = [self.detail] if self.detail else order[page * 3:page * 3 + 3]
-            return {'connection': self.connection, 'paused': self.paused, 'detail': self.detail,
+            return {'device': self.device.sample(), 'connection': self.connection, 'paused': self.paused, 'detail': self.detail,
                     'focus': self.focus, 'panel': SECTIONS[self.panel],
                     'selected': self.selected, 'page': page + 1, 'pages': max(1, (len(order) + 2) // 3),
                     'count': len(order), 'bad_messages': self.bad_messages,
@@ -239,17 +304,75 @@ def mqtt_start(state):
     return client
 
 
+class StickNavigation:
+    """Dominant-axis navigation for both sticks, with a dead zone and hold repeat."""
+    def __init__(self, limits):
+        self.limits = limits
+        self.values = {axis: 0.0 for axis in limits}
+        self.direction = None
+        self.next_repeat = 0.0
+
+    def update(self, axis, value):
+        if axis in self.limits:
+            low, high = self.limits[axis]
+            center = (low + high) / 2
+            self.values[axis] = (value - center) / max(1, (high - low) / 2)
+
+    def poll(self, now):
+        axis = max(self.values, key=lambda a: abs(self.values[a]), default=None)
+        value = self.values.get(axis, 0)
+        threshold = .25 if self.direction else .45
+        if abs(value) < threshold:
+            self.direction = None
+            return None
+        direction = ('left' if value < 0 else 'right') if axis in (0, 3) else ('up' if value < 0 else 'down')
+        if direction != self.direction:
+            self.direction = direction
+            self.next_repeat = now + .4
+            return direction
+        if now >= self.next_repeat:
+            self.next_repeat = now + .18
+            return direction
+        return None
+
+
 def controls(state, server):
     event = struct.Struct('@llHHi')
     pressed = set()
     try:
         with open('/dev/input/by-path/platform-odroidgo3-joypad-event-joystick', 'rb', buffering=0) as stream:
+            limits, initial = {}, {}
+            for axis in (0, 1, 3, 4):
+                try:
+                    info = bytearray(24)
+                    fcntl.ioctl(stream.fileno(), 0x80184540 + axis, info, True)
+                    value, low, high, *_ = struct.unpack('6i', info)
+                    if high > low:
+                        limits[axis], initial[axis] = (low, high), value
+                except OSError:
+                    pass
+            stick = StickNavigation(limits)
+            for axis, value in initial.items():
+                stick.update(axis, value)
             while True:
-                select.select([stream], [], [])
+                ready, _, _ = select.select([stream], [], [], .05)
+                if not ready:
+                    action = stick.poll(time.monotonic())
+                    if action:
+                        state.action(action)
+                    continue
                 raw = stream.read(event.size)
                 if len(raw) != event.size:
                     return
                 _, _, kind, code, value = event.unpack(raw)
+                if kind == 3:
+                    stick.update(code, value)
+                    continue
+                if kind == 0 and code == 0:
+                    action = stick.poll(time.monotonic())
+                    if action:
+                        state.action(action)
+                    continue
                 if kind != 1:
                     continue
                 if value:

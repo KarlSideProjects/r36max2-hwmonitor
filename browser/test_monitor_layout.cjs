@@ -10,7 +10,7 @@ const host={host:'DB795i',metrics:{cpu:42,gpu:75,ram:65,cpu_temp:66,gpu_temp:62,
  disks:{nvme0n1:{rate:{read_bytes_per_s:3e6,write_bytes_per_s:1e6,read_iops:42,write_iops:20}},sda:{rate:{read_bytes_per_s:1e6,write_bytes_per_s:0,read_iops:4,write_iops:0}}},
  temperatures:{cpu:[{label:'CPU',current:66},{label:'Package',current:64},{label:'NVMe',current:45}]},rx:4.2e6,tx:1.1e6,read:4e6,write:1e6},history:Array.from({length:60},(_,i)=>({cpu:i,gpu:i+10,ram:60,rx:2e6+i*1e4,tx:1e6,read:3e6,write:1e6}))};
 const primaryGpu=structuredClone(host.metrics.gpus[0]);
-let state={connection:'Connected',count:3,page:1,pages:1,paused:true,detail:'DB795i',selected:'DB795i',hosts:[host]};
+let state={device:{cpu:50,memory:68,temperature:62,battery:42,charging:true,plugged:true,battery_status:'Charging'},connection:'Connected',count:3,page:1,pages:1,paused:true,detail:'DB795i',selected:'DB795i',hosts:[host]};
 const listeners=new Set();
 const server=http.createServer((req,res)=>{
  if(req.url==='/control'&&req.method==='POST'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{const action=JSON.parse(body).action;if(action.startsWith('focus:')){state.focus=action.slice(6);state.panel=state.focus}else if(action==='back'){if(state.focus)state.focus=null;else state.detail=null}res.setHeader('Content-Type','application/json');res.end('{}');for(const stream of listeners)stream.write('data: '+JSON.stringify(state)+'\n\n')})}
@@ -25,18 +25,26 @@ const server=http.createServer((req,res)=>{
  try{
   const page=await browser.newPage({viewport:{width:1024,height:768}});
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('.cores .core').first().waitFor();
-  async function fits(){const overflow=await page.evaluate(()=>[...document.querySelectorAll('main,.panel,.item-card,footer,body')].filter(e=>e.scrollHeight>e.clientHeight+2||e.scrollWidth>e.clientWidth+2).map(e=>({tag:e.tagName,cls:e.className,h:e.clientHeight,sh:e.scrollHeight,w:e.clientWidth,sw:e.scrollWidth})));assert.deepEqual(overflow,[],'Screen content overflow: '+state.detail+' / '+state.focus)}
-  await fits();assert.equal(await page.locator('.cores .core').count(),4);
-  await page.locator('[data-section=cpu]').click();await page.locator('.focus-grid').waitFor();assert.equal(state.focus,'cpu');await fits();await page.keyboard.press('Escape');await page.locator('.detail-grid').waitFor();await page.locator('[data-section=gpu]').click();await page.locator('.focus-gpus').waitFor();assert.equal(state.focus,'gpu');await fits();await page.keyboard.press('Escape');await page.locator('.detail-grid').waitFor();
+  await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('.distance-detail .reading').first().waitFor();
+  const devicePosition=await page.locator('#device-status').boundingBox();
+  assert.equal(await page.locator('#charge-icon [aria-label=Charging]').count(),1);
+  async function fits(){assert.deepEqual(await page.locator('#device-status').boundingBox(),devicePosition,'Local status moved between views');const overflow=await page.evaluate(()=>[...document.querySelectorAll('#device-status,#device-status>div,main,article,.metric,.panel,.item-card,footer,body')].filter(e=>e.scrollHeight>e.clientHeight+2||e.scrollWidth>e.clientWidth+2).map(e=>({tag:e.tagName,cls:e.className,h:e.clientHeight,sh:e.scrollHeight,w:e.clientWidth,sw:e.scrollWidth})));assert.deepEqual(overflow,[],'Screen content overflow: '+state.detail+' / '+state.focus)}
+  state.device={...state.device,charging:false,battery:100,battery_status:'Full'};await page.reload();await page.locator('.distance-detail').waitFor();assert.ok((await page.locator('#charge-icon svg').getAttribute('aria-label')).includes('Fully charged'));state.device={...state.device,plugged:false,battery_status:'Discharging'};await page.reload();await page.locator('.distance-detail').waitFor();assert.equal(await page.locator('#charge-icon svg').count(),0);
+  await fits();assert.equal(await page.locator('.distance-detail .reading').count(),4);assert.equal(await page.locator('.distance-detail svg').count(),0);assert.equal(await page.locator('.distance-detail .flow-value').count(),4);assert.ok(await page.locator('.reading').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=64));assert.ok(await page.locator('.flow-value').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=48));
+  await page.locator('[data-section=cpu]').click();await page.locator('.focus-grid').waitFor();assert.equal(await page.locator('.cores .core').count(),4);assert.equal(state.focus,'cpu');await fits();await page.keyboard.press('Escape');await page.locator('.detail-grid').waitFor();await page.locator('[data-section=gpu]').click();await page.locator('.focus-gpus').waitFor();assert.equal(state.focus,'gpu');await fits();await page.keyboard.press('Escape');await page.locator('.detail-grid').waitFor();
   await page.screenshot({path:path.join(root,'comic-detail-preview.png')});
+  const savedMetrics=structuredClone(host.metrics);
+  Object.assign(host.metrics,{cpu:100,gpu:100,ram:100,cpu_temp:100,gpu_temp:100,rx:1023*2**20,tx:2**35,read:2**35,write:1023*2**20});
+  await page.reload();await page.locator('.distance-detail').waitFor();await fits();Object.assign(host.metrics,savedMetrics);
   // All actual categories must fit for hosts with no GPU, two GPUs, and four GPUs.
-  for(const count of [0,4]){state.hosts[0].metrics.gpus=Array.from({length:count},(_,i)=>({...primaryGpu,name:'GPU '+(i+1)}));await page.reload();await page.locator('.detail-grid').waitFor();await fits()}
+  for(const count of [0,4]){state.hosts[0].metrics.gpus=Array.from({length:count},(_,i)=>({...primaryGpu,name:'GPU '+(i+1)}));await page.reload();await page.locator('.detail-grid').waitFor();await fits();assert.equal(await page.locator('.gpu-reading').count(),count)}
   for(const section of ['cpu','gpu','memory','network','disks','temperatures','history']){state.focus=section;await page.reload();await page.locator('main').waitFor();await page.waitForFunction(()=>document.getElementById('main').innerHTML.length>0);await fits();if(section==='cpu')await page.screenshot({path:path.join(root,'comic-cpu-preview.png')})}
   state.focus=null;
   state.hosts[0].metrics.gpus=[{usage_percent:75,temperature_celsius:62,memory_used_mb:11348,memory_total_mb:16380,memory_percent:69.3}];state.detail=null;state.hosts=Array.from({length:3},(_,i)=>({...host,host:['pve','n100pve','DB795i'][i]}));state.selected='n100pve';await page.reload();await page.locator('article').first().waitFor();await fits();
   await page.screenshot({path:path.join(root,'comic-overview-preview.png')});
+  assert.ok(await page.locator('h2').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=30));assert.ok(await page.locator('.metric small').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=20));
+  for(const count of [0,2,4]){for(const h of state.hosts)h.metrics.gpus=Array.from({length:count},(_,i)=>({...primaryGpu,usage_percent:100,name:'GPU '+i}));await page.reload();await page.locator('article').first().waitFor();await fits();assert.equal(await page.locator('.overview-gpu-row').count(),count*3)}
   if(actual){for(const item of actual.hosts){state.detail=item.host;state.hosts=[item];state.selected=item.host;await page.reload();await page.locator('.detail-grid').waitFor();await fits();for(const section of ['cpu','gpu','memory','network','disks','temperatures','history']){state.focus=section;await page.reload();await page.waitForFunction(()=>document.getElementById('main').innerHTML.length>0);await fits()}state.focus=null}}
-  assert.deepEqual(errors,[]);console.log('PASS: 1024×768, no scrolling or clipping, top four cores, 0/2/4 GPUs, three-host overview');
+  assert.deepEqual(errors,[]);console.log('PASS: 1024×768, no scrolling or clipping, distance readings 64/48px, drill-down cores, 0/2/4 GPUs, three-host overview');
  }finally{await browser.close();server.closeAllConnections();server.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -74,7 +74,7 @@ state.action('next')
 assert state.focus == 'gpu'
 state.action('back')
 assert state.detail == 'drilldown' and state.focus is None
-state.action('down')
+state.action('right')
 assert state.snapshot()['panel'] == 'memory' and state.scroll == 0
 state.action('detail')
 assert state.focus == 'memory'
@@ -84,3 +84,63 @@ assert state.focus == 'network'
 state.tick(time.monotonic() + 10)
 assert state.detail is None and state.focus is None
 print('PASS: overview/device/metric navigation, click actions, metric switching, offline fallback')
+
+# Both analog sticks: center noise, dominant axis, all directions and held repeat.
+from monitor import StickNavigation
+stick = StickNavigation({axis: (-1800, 1800) for axis in (0, 1, 3, 4)})
+stick.update(0, 20)
+assert stick.poll(0) is None
+stick.update(0, 1500)
+assert stick.poll(1) == 'right'
+assert stick.poll(1.2) is None
+assert stick.poll(1.41) == 'right'
+stick.update(0, 0)
+assert stick.poll(1.5) is None
+for axis, value, expected in [(0,-1500,'left'),(1,-1500,'up'),(1,1500,'down'),(3,1500,'right'),(4,-1500,'up')]:
+    stick.update(axis,value)
+    assert stick.poll(2) == expected
+    stick.update(axis,0)
+    assert stick.poll(2.1) is None
+stick.update(0,1000);stick.update(1,-1500)
+assert stick.poll(3) == 'up'
+state = Monitor();publish(state,'navigation',time.monotonic());state.action('detail')
+for direction, panel in [('right','gpu'),('right','memory'),('down','disks'),('left','network'),('down','temperatures'),('right','history'),('up','disks'),('up','memory')]:
+    state.action(direction)
+    assert state.snapshot()['panel'] == panel
+print('PASS: both sticks, dead zone, dominant direction, repeat, spatial card navigation')
+
+# Local device readings do not depend on any monitored MQTT host.
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from monitor import LocalStatus
+with TemporaryDirectory() as directory:
+    root = Path(directory)
+    proc, supplies, thermal = root/'proc', root/'power', root/'thermal'
+    for path in (proc, supplies/'battery', supplies/'ac', thermal/'thermal_zone0'):
+        path.mkdir(parents=True)
+    (proc/'stat').write_text('cpu 100 0 0 200 0 0 0 0 0 0\n')
+    (proc/'meminfo').write_text('MemTotal: 1000 kB\nMemAvailable: 750 kB\n')
+    (thermal/'thermal_zone0'/'type').write_text('soc-thermal')
+    (thermal/'thermal_zone0'/'temp').write_text('55000')
+    (supplies/'battery'/'type').write_text('Battery')
+    (supplies/'battery'/'capacity').write_text('42')
+    (supplies/'battery'/'status').write_text('Charging')
+    (supplies/'ac'/'type').write_text('Mains')
+    (supplies/'ac'/'online').write_text('1')
+    device = LocalStatus(proc, supplies, thermal)
+    first=device.sample(0)
+    assert first['cpu'] is None and first['memory']==25 and first['temperature']==55
+    assert first['battery']==42 and first['charging'] and first['plugged']
+    (proc/'stat').write_text('cpu 150 0 0 250 0 0 0 0 0 0\n')
+    assert device.sample(1) is first
+    assert device.sample(2)['cpu']==50
+    (supplies/'battery'/'capacity').write_text('100')
+    (supplies/'battery'/'status').write_text('Full')
+    full=device.sample(4)
+    assert full['battery']==100 and not full['charging'] and full['plugged']
+    (supplies/'ac'/'online').write_text('0')
+    (supplies/'battery'/'status').write_text('Discharging')
+    assert not device.sample(6)['plugged']
+    unknown=LocalStatus(root/'missing',root/'missing',root/'missing').sample(0)
+    assert all(unknown[key] is None for key in ('cpu','memory','temperature','battery'))
+print('PASS: handheld CPU delta, cached reads, memory, temperature, battery/charging/full/unplugged/unknown')
