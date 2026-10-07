@@ -126,6 +126,7 @@ class Monitor:
         self.focus = None
         self.panel = 0
         self.scroll = 0
+        self.item_page = 0
         self.paused = False
         self.last_page = time.monotonic()
         self.connection = 'Not configured'
@@ -211,9 +212,11 @@ class Monitor:
                 if action.startswith('focus:') and self.detail is not None and action[6:] in SECTIONS:
                     self.focus = action[6:]
                     self.panel = SECTIONS.index(self.focus)
+                    self.item_page = 0
                 elif action in ('previous', 'next') and self.focus is not None:
                     self.panel = (self.panel + (1 if action == 'next' else -1)) % len(SECTIONS)
                     self.focus = SECTIONS[self.panel]
+                    self.item_page = 0
                 elif action in ('previous', 'next'):
                     pages = (len(order) + 2) // 3
                     page = (index // 3 + (1 if action == 'next' else -1)) % pages
@@ -227,6 +230,8 @@ class Monitor:
                                      'left': {1: 0, 2: 1, 4: 3, 6: 5},
                                      'right': {0: 1, 1: 2, 3: 4, 5: 6}}
                         self.panel = neighbors[action].get(self.panel, self.panel)
+                    elif self.focus in ('gpu', 'network', 'disks', 'temperatures'):
+                        self.item_page += 1 if action == 'down' else -1
                     else:
                         return
                 elif action in ('up', 'down') and self.detail is None:
@@ -240,6 +245,7 @@ class Monitor:
                     elif self.focus is None:
                         self.focus = SECTIONS[self.panel]
                     self.scroll = 0
+                    self.item_page = 0
                 else:
                     return
                 self.paused = True
@@ -253,7 +259,7 @@ class Monitor:
             page = order.index(self.selected) // 3 if order else 0
             visible = [self.detail] if self.detail else order[page * 3:page * 3 + 3]
             return {'device': self.device.sample(), 'connection': self.connection, 'paused': self.paused, 'detail': self.detail,
-                    'focus': self.focus, 'panel': SECTIONS[self.panel],
+                    'focus': self.focus, 'panel': SECTIONS[self.panel], 'item_page': self.item_page,
                     'selected': self.selected, 'page': page + 1, 'pages': max(1, (len(order) + 2) // 3),
                     'count': len(order), 'bad_messages': self.bad_messages,
                     'scroll': self.scroll,

@@ -69,6 +69,43 @@ header h1,body.device-summary h1{max-width:360px;font-size:30px}
 #charge-icon svg{width:15px;height:16px;vertical-align:-2px}
 #connection{position:absolute;top:81px;right:20px;font-size:14px;padding:4px 10px}
 #summary{max-width:calc(100% - 230px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.focus-grid h3,.focus-list>.panel:first-child h3{font-size:28px;line-height:34px}
+.focus-grid .gauge{width:170px;height:170px}
+.focus-grid .gauge text,.focus-gpus .gauge text{font-size:28px}
+.focus-grid .sensor{font-size:24px;line-height:32px}
+.focus-grid .core{font-size:26px;line-height:32px}
+.focus-grid .big{font-size:36px;line-height:42px}
+.focus-grid .mini-label{font-size:22px;line-height:28px}
+.focus-grid .tag{font-size:20px}
+.focus-grid .history-note{font-size:17px}
+.focus-grid .focus-chart svg{height:155px;margin-top:10px}
+.gpu-focus-page{height:100%;display:grid;grid-template-rows:40px minmax(0,1fr);gap:10px}
+.gpu-page-heading{font-size:26px;line-height:34px;display:flex;justify-content:space-between;align-items:center}
+.item-pager{font-size:20px;white-space:nowrap;float:right}
+.item-pager button{font-size:20px;padding:0 8px;line-height:27px}
+.item-pager button:disabled{opacity:.4;cursor:default}
+.focus-gpus .gpu-name{font-size:26px;line-height:32px;margin-bottom:10px}
+.focus-gpus .gauge{width:138px;height:138px}
+.focus-gpus .sensor{font-size:24px;line-height:32px}
+.focus-gpus .focus-chart small{font-size:21px;line-height:28px}
+.focus-gpus .focus-chart svg{height:115px;margin-top:8px}
+.focus-list{grid-template-rows:170px 100px minmax(0,1fr)}
+.focus-list>.panel{padding:10px 14px}
+.focus-list .io-totals strong{font-size:38px;line-height:44px;margin:2px 0 4px}
+.focus-list .io-totals small,.focus-list .mini-label{font-size:20px;line-height:26px}
+.focus-list .big{font-size:38px;line-height:44px;margin:3px 0}
+.focus-list .graphs-pair{font-size:22px;line-height:28px}
+.focus-list .graphs-pair svg{height:43px;margin-top:6px}
+.item-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.item-card h4{font-size:24px;line-height:28px;margin-bottom:5px}
+.item-card .sensor{font-size:22px;line-height:28px}
+.item-card .track{height:9px;margin-top:2px}
+.item-card .item-extra{font-size:18px;line-height:22px}
+.focus-activity h3{font-size:24px;line-height:30px}
+.focus-activity strong{font-size:32px;line-height:38px}
+.focus-activity small{font-size:18px;line-height:24px}
+.focus-activity svg{height:115px;margin-top:12px}
 </style>
 <header><img src="/assets/hardware-buddy.svg" alt="Smiling chip mascot"><div><div class="brand-note">Hardware buddies</div><h1 id="title">Hardware Monitor</h1></div><aside id="device-status" aria-label="R36 handheld status"><div><small>R36 Temp</small><strong id="local-temp">—</strong></div><div><small>R36 CPU</small><strong id="local-cpu">—</strong></div><div><small>R36 RAM</small><strong id="local-memory">—</strong></div><div id="local-battery-box"><small>Battery <span id="charge-icon"></span></small><strong id="local-battery">—</strong></div></aside><span id="connection">Connecting…</span></header>
 <div id="summary"></div><main id="main"></main>
@@ -95,7 +132,7 @@ function vramPercent(g){if(g.memory_total_mb===0)return '—';return numeric(g.m
 function mainVram(gpus){return gpus.filter(g=>numeric(g.memory_total_mb)&&g.memory_total_mb>0).sort((a,b)=>(b.memory_used_mb??0)-(a.memory_used_mb??0))[0]??gpus.find(g=>numeric(g.memory_percent))??{}}
 
 function bar(value,color,max=100){const width=numeric(value)?Math.min(100,Math.max(0,value/max*100)):0;return `<div class="track" style="--color:${color}"><div class="fill" style="width:${width}%"></div></div>`}
-function gauge(value,color,label){let percent=numeric(value)?Math.min(100,Math.max(0,value)):0;return `<svg class="gauge" viewBox="0 0 120 120" role="img" aria-label="${esc(label)} ${fmt(value,'%')}"><circle cx="60" cy="60" r="48" fill="#fffef4" stroke="#243449" stroke-width="13"/><circle cx="60" cy="60" r="48" fill="none" stroke="${color}" stroke-width="9" pathLength="100" stroke-dasharray="${percent} 100" transform="rotate(-90 60 60)"/><text x="60" y="66" text-anchor="middle">${fmt(value,'%')}</text></svg>`}
+function gauge(value,color,label){let percent=numeric(value)?Math.min(100,Math.max(0,value)):0;return `<svg class="gauge" viewBox="0 0 120 120" role="img" aria-label="${esc(label)} ${fmt(value,'%')}"><circle cx="60" cy="60" r="48" fill="#fffef4" stroke="#243449" stroke-width="13"/><circle cx="60" cy="60" r="48" fill="none" stroke="${color}" stroke-width="9" pathLength="100" stroke-dasharray="${percent} 100" transform="rotate(-90 60 60)"/><text x="60" y="66" text-anchor="middle">${numeric(value)&&value>=100?'100%':fmt(value,'%')}</text></svg>`}
 function temperature(value,label='Temperature'){return `<div class="sensor">${esc(label)} ${fmt(value,'°C')}${bar(value,'#ffe071',100)}</div>`}
 function busiest(cores){return cores.map((value,index)=>({value,index})).filter(c=>numeric(c.value)).sort((a,b)=>b.value-a.value||a.index-b.index).slice(0,4)}
 function gpuCard(g,i){let used=g.memory_total_mb===0?null:(numeric(g.memory_percent)?g.memory_percent:(numeric(g.memory_used_mb)&&numeric(g.memory_total_mb)&&g.memory_total_mb>0?g.memory_used_mb/g.memory_total_mb*100:null));return `<div class="gpu-card"><div class="gpu-name">${esc(g.name??g.product_name??`GPU ${i+1}`)}</div><div class="instrument">${gauge(g.usage_percent,'#ff9fbb','GPU load')}<div>${temperature(g.temperature_celsius)}<div class="sensor">VRAM ${vram(g)} · ${vramPercent(g)}${bar(used,'#ff9fbb')}</div></div></div></div>`}
@@ -121,16 +158,18 @@ function detail(host){const m=host.metrics;
 const sectionLabels={cpu:'CPU',gpu:'GPU',memory:'Memory',network:'Network',disks:'Disk I/O',temperatures:'Temperatures',history:'Activity trails'};
 function chartPanel(label,history,key,color,limit=100){return `<section class="panel focus-chart"><h3>${esc(label)}<span class="history-note">Last 60 updates</span></h3>${graph(history,key,color,limit)}</section>`}
 function gpuHistory(history,index){return history.map(sample=>sample.gpus?.[index]??{})}
-function focusDetail(host,section){let m=host.metrics,h=host.history;
+function pageItems(rows,page,size=4){const count=Math.max(1,Math.ceil(rows.length/size)),index=((page%count)+count)%count;return rows.slice(index*size,(index+1)*size)}
+function itemPager(rows,page,size=4){const count=Math.max(1,Math.ceil(rows.length/size)),index=((page%count)+count)%count;return `<span class="item-pager"><button onclick="control('up')" ${count===1?'disabled':''}>↑</button> ${index+1} / ${count} <button onclick="control('down')" ${count===1?'disabled':''}>↓</button></span>`}
+function focusDetail(host,section,page=0){let m=host.metrics,h=host.history;
  if(section==='cpu')return `<div class="focus-grid"><section class="panel cpu-panel"><h3>CPU overall <span class="tag">${m.cores.length} cores</span></h3><div class="instrument">${gauge(m.cpu,'#9cccf4','CPU load')}<div>${temperature(m.cpu_temp,'CPU temperature')}</div></div></section><section class="panel"><h3>Busiest four cores</h3><div class="cores">${busiest(m.cores).map(c=>`<div class="core">C${c.index+1} ${fmt(c.value,'%')}${bar(c.value,'#9cccf4')}</div>`).join('')||'No per-core data'}</div></section>${chartPanel('CPU load',h,'cpu','#4b91c9')}${chartPanel('CPU temperature',h,'cpu_temp','#aa8100',100)}</div>`;
- if(section==='gpu')return m.gpus.length?`<div class="focus-gpus ${m.gpus.length>2?'compact':m.gpus.length===1?'single':''}">${m.gpus.map((g,i)=>`<section class="panel gpu-panel">${gpuCard(g,i)}<div class="focus-chart"><small>GPU ${i+1} load · last 60 updates</small>${graph(gpuHistory(h,i),'load','#ce648b')}</div><div class="focus-chart"><small>VRAM usage · last 60 updates</small>${graph(gpuHistory(h,i),'vram','#9860bd')}</div></section>`).join('')}</div>`:'<div class="empty">No GPU data reported by this computer</div>';
+ if(section==='gpu')return m.gpus.length?`<div class="gpu-focus-page"><div class="gpu-page-heading">GPU devices ${itemPager(m.gpus,page,2)}</div><div class="focus-gpus ${pageItems(m.gpus,page,2).length===1?'single':''}">${pageItems(m.gpus.map((g,i)=>({g,i})),page,2).map(({g,i})=>`<section class="panel gpu-panel">${gpuCard(g,i)}<div class="focus-chart"><small>GPU ${i+1} load · last 60 updates</small>${graph(gpuHistory(h,i),'load','#ce648b')}</div><div class="focus-chart"><small>VRAM usage · last 60 updates</small>${graph(gpuHistory(h,i),'vram','#9860bd')}</div></section>`).join('')}</div></div>`:'<div class="empty">No GPU data reported by this computer</div>';
  if(section==='memory')return `<div class="focus-grid"><section class="panel memory-panel"><h3>RAM usage</h3><div class="instrument">${gauge(m.ram,'#8ae1c8','RAM')}<div><div class="big">${bytes(m.ram_used)}</div><div class="mini-label">Used of ${bytes(m.ram_total)}</div><div class="mini-label">Available ${numeric(m.ram_total)&&numeric(m.ram_used)?bytes(Math.max(0,m.ram_total-m.ram_used)):'—'}</div></div></div></section><section class="panel"><h3>Swap usage</h3>${gauge(m.swap,'#ffe071','Swap')}</section>${chartPanel('RAM history',h,'ram','#379d7a')}${chartPanel('Swap history',h,'swap','#aa8100')}</div>`;
  if(section==='history')return `<div class="focus-activity">${[['CPU','cpu','#4b91c9',100],['GPU','gpu','#ce648b',100],['Memory','ram','#379d7a',100],['Download','rx','#4b91c9',null],['Upload','tx','#379d7a',null],['Disk read','read','#aa8100',null],['Disk write','write','#9860bd',null]].map(([label,key,color,max])=>`<section class="panel"><h3>${label}</h3><strong>${max===100?fmt(m[key],'%'):rate(m[key])}</strong>${graph(h,key,color,max)}<small>Last 60 updates</small></section>`).join('')}</div>`;
- if(section==='temperatures'){let rows=sensors(m.temperatures),highest=rows[0]?.value;return `<div class="focus-list"><section class="panel"><h3>Temperatures <span class="tag">${rows.length} sensors</span></h3><div class="big">Hottest ${fmt(highest,'°C')}</div><div class="mini-label">${rows.length>12?'Hottest 12 sensors shown':'All reported sensors'}</div></section><section class="panel graphs-pair"><div>CPU temperature${graph(h,'cpu_temp','#aa8100',100)}</div><div>GPU temperature${graph(h,'gpu_temp','#ce648b',100)}</div></section><div class="item-grid">${rows.slice(0,12).map(t=>`<div class="item-card"><h4>${esc(t.name)}</h4>${temperature(t.value)}</div>`).join('')||'<div>No sensors reported</div>'}</div></div>`}
+ if(section==='temperatures'){let rows=sensors(m.temperatures),highest=rows[0]?.value;return `<div class="focus-list"><section class="panel"><h3>Temperatures <span class="tag">${rows.length} sensors</span></h3><div class="big">Hottest ${fmt(highest,'°C')}</div><div class="mini-label">${itemPager(rows,page)}</div></section><section class="panel graphs-pair"><div>CPU temperature${graph(h,'cpu_temp','#aa8100',100)}</div><div>GPU temperature${graph(h,'gpu_temp','#ce648b',100)}</div></section><div class="item-grid">${pageItems(rows,page).map(t=>`<div class="item-card"><h4>${esc(t.name)}</h4>${temperature(t.value)}</div>`).join('')||'<div>No sensors reported</div>'}</div></div>`}
  let network=section==='network',rows=Object.entries(network?m.network?.per_nic??{}:m.disks??{}),first=network?'rx_bytes_per_s':'read_bytes_per_s',second=network?'tx_bytes_per_s':'write_bytes_per_s';
  rows.sort((a,b)=>((b[1]?.rate?.[first]??0)+(b[1]?.rate?.[second]??0))-((a[1]?.rate?.[first]??0)+(a[1]?.rate?.[second]??0)));
  let limit=Math.max(1,...rows.flatMap(([_,entry])=>[entry?.rate?.[first],entry?.rate?.[second]]).filter(numeric));
- return `<div class="focus-list"><section class="panel"><h3>${network?'Network interfaces':'Disk devices'} <span class="tag">${rows.length} ${network?'interfaces':'devices'}</span></h3><div class="io-totals"><div><small>${network?'Total download':'Total read'}</small><strong>${rate(network?m.rx:m.read)}</strong></div><div><small>${network?'Total upload':'Total write'}</small><strong>${rate(network?m.tx:m.write)}</strong></div></div><div class="mini-label">${rows.length>12?'Busiest 12 shown; totals include all devices':'All reported devices'}</div></section><section class="panel graphs-pair"><div>${network?'Download':'Read'}${graph(h,network?'rx':'read','#4b91c9',null)}</div><div>${network?'Upload':'Write'}${graph(h,network?'tx':'write','#379d7a',null)}</div></section><div class="item-grid">${rows.slice(0,12).map(([name,entry])=>`<div class="item-card"><h4>${esc(name)}</h4><div class="sensor">${network?'↓':'Read'} ${rate(entry?.rate?.[first])}${bar(entry?.rate?.[first],'#9cccf4',limit)}</div><div class="sensor">${network?'↑':'Write'} ${rate(entry?.rate?.[second])}${bar(entry?.rate?.[second],'#8ae1c8',limit)}</div>${network?'':`<div class="sensor">IOPS R ${fmt(entry?.rate?.read_iops)} / W ${fmt(entry?.rate?.write_iops)}</div>`}</div>`).join('')||'<div>No device data reported</div>'}</div></div>`;
+ return `<div class="focus-list"><section class="panel"><h3>${network?'Network interfaces':'Disk devices'} <span class="tag">${rows.length} ${network?'interfaces':'devices'}</span></h3><div class="io-totals"><div><small>${network?'Total download':'Total read'}</small><strong>${rate(network?m.rx:m.read)}</strong></div><div><small>${network?'Total upload':'Total write'}</small><strong>${rate(network?m.tx:m.write)}</strong></div></div><div class="mini-label">Totals include all devices ${itemPager(rows,page)}</div></section><section class="panel graphs-pair"><div>${network?'Download':'Read'}${graph(h,network?'rx':'read','#4b91c9',null)}</div><div>${network?'Upload':'Write'}${graph(h,network?'tx':'write','#379d7a',null)}</div></section><div class="item-grid">${pageItems(rows,page).map(([name,entry])=>`<div class="item-card"><h4>${esc(name)}</h4><div class="sensor">${network?'↓':'Read'} ${rate(entry?.rate?.[first])}${bar(entry?.rate?.[first],'#9cccf4',limit)}</div><div class="sensor">${network?'↑':'Write'} ${rate(entry?.rate?.[second])}${bar(entry?.rate?.[second],'#8ae1c8',limit)}</div>${network?'':`<div class="sensor item-extra">IOPS R ${fmt(entry?.rate?.read_iops)} / W ${fmt(entry?.rate?.write_iops)}</div>`}</div>`).join('')||'<div>No device data reported</div>'}</div></div>`;
 }
 let updating=false;
 let viewKey='', renderedAt=0,lastSelection=null,lastPanel=null;
@@ -149,11 +188,11 @@ function render(s){
  document.getElementById('connection').textContent=s.connection;
  document.getElementById('connection').className=s.connection==='Connected'?'':'error';
  document.getElementById('title').textContent=s.detail||'Hardware Monitor';
- document.getElementById('help').innerHTML=s.detail?(s.focus?'<kbd>B</kbd> Device details':'<kbd>Stick / D-pad</kbd> Select <kbd>A</kbd> Open <kbd>B</kbd> Back'):'<kbd>Stick / D-pad</kbd> Select <kbd>A</kbd> Details';
+ document.getElementById('help').innerHTML=s.detail?(s.focus?'<kbd>↑ ↓</kbd> Items <kbd>← →</kbd> Metric <kbd>B</kbd> Back':'<kbd>Stick / D-pad</kbd> Select <kbd>A</kbd> Open <kbd>B</kbd> Back'):'<kbd>Stick / D-pad</kbd> Select <kbd>A</kbd> Details';
  document.getElementById('summary').textContent=`${s.count} online · Page ${s.page} / ${s.pages} · ${s.focus?sectionLabels[s.focus]+' · L1 / R1 switch metric':s.detail?'Live usage · A: metric details':s.paused?'Paused · press Start to resume':'Auto · 15 seconds per page'}`;
- let root=document.getElementById('main'),key=JSON.stringify([s.detail,s.focus,s.hosts.map(h=>h.host)]),now=performance.now();
+ let root=document.getElementById('main'),key=JSON.stringify([s.detail,s.focus,s.item_page??0,s.hosts.map(h=>h.host)]),now=performance.now();
  // Metrics redraw once per second; selection responds to every event.
- if(key!==viewKey||(now-renderedAt>=1000&&s.selected===lastSelection&&s.panel===lastPanel)){root.innerHTML=s.hosts.length?(s.detail?(s.focus?focusDetail(s.hosts[0],s.focus):detail(s.hosts[0])):'<div class="overview-grid">'+s.hosts.map(h=>overview(h,s.selected)).join('')+'</div>'):'<div class="empty"><div><img src="/assets/hardware-buddy.svg" alt="">No buddies online yet<br><small>Waiting for computer monitoring data</small></div></div>';viewKey=key;renderedAt=now;root.querySelectorAll('.detail-grid>.panel').forEach((p,i)=>{p.dataset.section=Object.keys(sectionLabels)[i];p.setAttribute('role','button');p.tabIndex=0;p.setAttribute('aria-label','Open '+sectionLabels[p.dataset.section]+' details')})}
+ if(key!==viewKey||(now-renderedAt>=1000&&s.selected===lastSelection&&s.panel===lastPanel)){root.innerHTML=s.hosts.length?(s.detail?(s.focus?focusDetail(s.hosts[0],s.focus,s.item_page??0):detail(s.hosts[0])):'<div class="overview-grid">'+s.hosts.map(h=>overview(h,s.selected)).join('')+'</div>'):'<div class="empty"><div><img src="/assets/hardware-buddy.svg" alt="">No buddies online yet<br><small>Waiting for computer monitoring data</small></div></div>';viewKey=key;renderedAt=now;root.querySelectorAll('.detail-grid>.panel').forEach((p,i)=>{p.dataset.section=Object.keys(sectionLabels)[i];p.setAttribute('role','button');p.tabIndex=0;p.setAttribute('aria-label','Open '+sectionLabels[p.dataset.section]+' details')})}
  root.querySelectorAll('article').forEach(a=>a.classList.toggle('selected',a.dataset.host===s.selected));
  root.querySelectorAll('[data-section]').forEach(p=>{p.classList.toggle('selected',p.dataset.section===s.panel);p.setAttribute('aria-pressed',String(p.dataset.section===s.panel))});
  lastSelection=s.selected;lastPanel=s.panel;

@@ -144,3 +144,14 @@ with TemporaryDirectory() as directory:
     unknown=LocalStatus(root/'missing',root/'missing',root/'missing').sample(0)
     assert all(unknown[key] is None for key in ('cpu','memory','temperature','battery'))
 print('PASS: handheld CPU delta, cached reads, memory, temperature, battery/charging/full/unplugged/unknown')
+
+state.action('focus:gpu')
+state.action('down')
+assert state.snapshot()['item_page'] == 1
+state.action('up');state.action('up')
+assert state.snapshot()['item_page'] == -1 and state.scroll == 0
+state.action('right')
+assert state.snapshot()['item_page'] == 0 and state.focus == 'memory'
+state.action('down')
+assert state.snapshot()['item_page'] == 0
+print('PASS: metric item paging, reverse paging, reset when changing metric, no scrolling')
