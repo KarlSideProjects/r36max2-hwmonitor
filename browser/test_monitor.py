@@ -70,7 +70,7 @@ state.action('detail')
 assert state.snapshot()['panel'] == 'cpu' and state.focus is None
 state.action('detail')
 assert state.focus == 'cpu'
-state.action('next')
+state.action('right')
 assert state.focus == 'gpu'
 state.action('back')
 assert state.detail == 'drilldown' and state.focus is None
@@ -189,3 +189,23 @@ with TemporaryDirectory() as directory, patch('monitor.subprocess.run') as dpms:
     dpms.side_effect=None
     assert Screen(directory,0).dim==1 and Screen(directory,999).dim==255
 print('PASS: FN sleep/wake, nonzero dim brightness, sleeping input ignored, exit brightness restored')
+
+# Shoulder buttons cycle devices without leaving either detail level.
+state=Monitor()
+for i in range(7):publish(state,f'device-{i}',time.monotonic())
+state.action('detail')
+for i in range(1,8):
+    state.action('next')
+    assert state.detail==state.selected==f'device-{i%7}' and state.focus is None and state.paused
+state.action('previous');assert state.detail=='device-6'
+state.action('focus:gpu');state.action('down');state.action('next')
+assert state.detail=='device-0' and state.focus=='gpu' and state.item_page==0
+state.action('right');assert state.focus=='memory' and state.detail=='device-0'
+state.action('previous');assert state.detail=='device-6' and state.focus=='memory'
+state.hosts.pop('device-0');state.action('next');assert state.detail=='device-1'
+state.action('back');assert state.detail=='device-1' and state.focus is None
+state.action('back');assert state.detail is None
+single=Monitor();publish(single,'only',time.monotonic());single.action('detail')
+for button in ('next','previous'):
+    single.action(button);assert single.detail=='only'
+print('PASS: L1/R1 detail device cycling, wrap, metric retained, item reset, removed host, B back, single host')

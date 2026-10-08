@@ -259,6 +259,8 @@ class Monitor:
             order = list(self.hosts)
             if action in ('left', 'right') and (self.detail is None or self.focus is not None):
                 action = 'previous' if action == 'left' else 'next'
+                if self.focus is not None:
+                    action = 'metric_' + action
             if action == 'toggle' and self.detail is None:
                 self.paused = not self.paused
                 self.last_page = now
@@ -275,10 +277,14 @@ class Monitor:
                     self.focus = action[6:]
                     self.panel = SECTIONS.index(self.focus)
                     self.item_page = 0
-                elif action in ('previous', 'next') and self.focus is not None:
-                    self.panel = (self.panel + (1 if action == 'next' else -1)) % len(SECTIONS)
+                elif action in ('metric_previous', 'metric_next') and self.focus is not None:
+                    self.panel = (self.panel + (1 if action == 'metric_next' else -1)) % len(SECTIONS)
                     self.focus = SECTIONS[self.panel]
                     self.item_page = 0
+                elif action in ('previous', 'next') and self.detail is not None:
+                    self.selected = order[(index + (1 if action == 'next' else -1)) % len(order)]
+                    self.detail = self.selected
+                    self.item_page = self.scroll = 0
                 elif action in ('previous', 'next'):
                     pages = (len(order) + 2) // 3
                     page = (index // 3 + (1 if action == 'next' else -1)) % pages
